@@ -21,11 +21,11 @@ st.set_page_config(
 )
 
 # ── Config ───────────────────────────────────────────────────────────────────
-TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+TMDB_API_KEY = st.secrets["TMDB_API_KEY"]
 TMDB_BASE    = "https://api.themoviedb.org/3"
 TMDB_IMG     = "https://image.tmdb.org/t/p/w500"
 TMDB_IMG_ORI = "https://image.tmdb.org/t/p/original"
-movies = fetch_trending()
+
 
 # ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -119,6 +119,8 @@ def tmdb_get(endpoint: str, **params) -> dict:
 
 def fetch_popular(page=1):
     return tmdb_get("movie/popular", page=page).get("results", [])[:20]
+
+movies = fetch_trending()
 
 def fetch_trending(window="week"):
     return tmdb_get(f"trending/movie/{window}").get("results", [])[:20]
