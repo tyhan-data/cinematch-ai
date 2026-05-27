@@ -6,11 +6,6 @@ Beautiful movie recommendation web app powered by FastAPI + TMDB
 import streamlit as st
 import requests
 from typing import Optional
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -21,11 +16,16 @@ st.set_page_config(
 )
 
 # ── Config ───────────────────────────────────────────────────────────────────
-TMDB_API_KEY = st.secrets["TMDB_API_KEY"]
+
+try:
+    TMDB_API_KEY = st.secrets["TMDB_API_KEY"]
+except Exception:
+    st.error("⚠️ TMDB API key not found")
+    st.stop()
+
 TMDB_BASE    = "https://api.themoviedb.org/3"
 TMDB_IMG     = "https://image.tmdb.org/t/p/w500"
 TMDB_IMG_ORI = "https://image.tmdb.org/t/p/original"
-
 
 # ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -114,13 +114,21 @@ img { border: none; }
 def tmdb_get(endpoint: str, **params) -> dict:
     params["api_key"] = TMDB_API_KEY
     params["language"] = "en-US"
-    r = requests.get(f"{TMDB_BASE}/{endpoint}", params=params, timeout=8)
-    return r.json() if r.status_code == 200 else {}
+    try:
+        r = requests.get(f"{TMDB_BASE}/{endpoint}", params=params, timeout=10)
+        if r.status_code == 200:
+            return r.json()
+        else:
+            st.warning(f"TMDB API error {r.status_code}: {r.text[:100]}")
+            return {}
+    except Exception as e:
+        st.error(f"Network error: {e}")
+        return {}
 
 def fetch_popular(page=1):
     return tmdb_get("movie/popular", page=page).get("results", [])[:20]
 
-movies = fetch_trending()
+
 
 def fetch_trending(window="week"):
     return tmdb_get(f"trending/movie/{window}").get("results", [])[:20]
@@ -152,7 +160,7 @@ def fetch_movie_details(movie_id: int) -> dict:
         "id": movie_id,
         "title": details.get("title", ""),
         "overview": details.get("overview", ""),
-        "poster":   f"{TMDB_IMG}{details['poster_path']}"    if details.get("poster_path")   else None,
+        "poster":   f"{TMDB_IMG}{details['poster_path']}"       if details.get("poster_path")   else None,
         "backdrop": f"{TMDB_IMG_ORI}{details['backdrop_path']}" if details.get("backdrop_path") else None,
         "rating":       round(details.get("vote_average", 0), 1),
         "votes":        details.get("vote_count", 0),
@@ -229,7 +237,7 @@ with st.sidebar:
 def show_movie_detail(movie_id: int):
     with st.spinner("Loading movie details..."):
         m = fetch_movie_details(movie_id)
-    if not m:
+    if not m or not m.get("title"):
         st.error("Could not load movie details.")
         return
 
@@ -298,14 +306,12 @@ def show_movie_detail(movie_id: int):
                 poster_url = f"{TMDB_IMG}{poster}" if poster else "https://via.placeholder.com/300x450?text=No+Image"
                 st.image(poster_url, use_container_width=True)
                 st.caption(f"**{rec['title']}** ⭐{round(rec.get('vote_average',0),1)}")
-                # ✅ FIX: unique key using movie_id + rec id + index
                 if st.button("Details", key=f"detail_rec_{movie_id}_{rec['id']}_{i}", use_container_width=True):
                     st.session_state.selected_movie = rec["id"]
                     st.rerun()
 
 
 # ── Movie grid renderer ───────────────────────────────────────────────────────
-# ✅ FIX: `prefix` param makes every key globally unique across tabs/pages
 def render_movie_grid(movies: list, cols_count: int = 5, prefix: str = "grid"):
     if not movies:
         st.info("No movies found.")
@@ -328,7 +334,6 @@ def render_movie_grid(movies: list, cols_count: int = 5, prefix: str = "grid"):
             st.markdown(f"<div style='font-size:0.82rem;font-weight:700;color:#fff;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' title='{title}'>{title}</div>", unsafe_allow_html=True)
             st.markdown(f"<div style='font-size:0.75rem;color:#aaa'>⭐ {round(float(rating),1)} &nbsp;|&nbsp; {year}</div>", unsafe_allow_html=True)
 
-            # ✅ KEY FIX: prefix + movie_id + loop-index = guaranteed unique
             btn_key = f"{prefix}_{m.get('id', 'noid')}_{i}"
             if st.button("Details", key=btn_key, use_container_width=True):
                 st.session_state.selected_movie = m.get("id")
@@ -364,7 +369,6 @@ else:
             else:
                 st.warning("No movies found for your search.")
         else:
-            # ✅ FIX: each tab passes a unique prefix so keys never clash
             tabs = st.tabs(["🔥 Trending This Week", "🌟 Popular Now", "⭐ Top Rated"])
             with tabs[0]:
                 with st.spinner("Loading trending movies..."):
@@ -427,16 +431,18 @@ else:
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align: center; padding: 2rem; margin-top: 3rem; background: linear-gradient(145deg, #1e1e24, #141417); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);">
+<div style="text-align: center; padding: 2rem; margin-top: 3rem; background: linear-gradient(145deg, #1e1e24, #141417); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05);">
     <div style="font-weight: 700; color: #ffffff; font-size: 0.95rem; letter-spacing: 1.2px; text-transform: uppercase;">
-        🎬 CineMatch <span style="color: #666; font-weight: 300; margin: 0 8px;">|</span> <span style="color: #00f2fe; font-size: 0.85rem;">Built with Streamlit</span>
+        🎬 CineMatch <span style="color: #666; font-weight: 300; margin: 0 8px;">|</span>
+        <span style="color: #00f2fe; font-size: 0.85rem;">Built with Streamlit</span>
     </div>
     <div style="margin-top: 12px; font-size: 0.85rem; color: #aaa;">
-        Developed by <span style="background: linear-gradient(45deg, #ff416c, #ff4b2b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800; font-size: 0.9rem;">Mosairul Alam Tyhan</span>
+        Developed by <span style="color:#ff416c; font-weight: 800; font-size: 0.9rem;">Mosairul Alam Tyhan</span>
     </div>
-    <hr style="border: 0; height: 1px; background: linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent); margin: 15px auto; width: 60%;">
-    <div style="font-size: 0.72rem; color: #666; line-height: 1.4; max-width: 400px; margin: 0 auto;">
-        ✨ Powered by <span style="color: #01b4e4; font-weight: 600;">TMDB API</span>. This product uses the TMDB API but is not endorsed or certified by TMDB.
+    <hr style="border: 0; height: 1px; background: rgba(255,255,255,0.1); margin: 15px auto; width: 60%;">
+    <div style="font-size: 0.72rem; color: #666; line-height: 1.4;">
+        ✨ Powered by <span style="color: #01b4e4; font-weight: 600;">TMDB API</span>.
+        This product uses the TMDB API but is not endorsed or certified by TMDB.
     </div>
 </div>
 """, unsafe_allow_html=True)
