@@ -10,10 +10,9 @@
 ## 🌐 Live Demo
 
 **[🚀 Visit CineMatch AI](https://cinematch-ai-by-tyhan.streamlit.app/)**
-
-![CineMatch AI Platform - Website Preview](https://raw.githubusercontent.com/tyhan-data/cinematch-ai/main/assets/cinematch-website.png)
-
----
+<p align="center">
+  <img src="https://miro.medium.com/v2/resize:fit:1200/1*cxk3Kmrji9qHEB2tB-7v5Q.png" width="800">
+</p>
 
 ## 📋 Overview
 
