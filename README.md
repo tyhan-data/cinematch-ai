@@ -11,13 +11,13 @@
 
 **[🚀 Visit CineMatch AI](https://cinematch-ai-by-tyhan.streamlit.app/)**
 
-![CineMatch AI Platform](https://dev.to/vishal_kumar_691b5619d0dd/how-i-turned-an-old-movie-recommendation-project-into-a-cinematic-ai-platform-152j)
+![CineMatch AI Platform - Website Preview](https://raw.githubusercontent.com/tyhan-data/cinematch-ai/main/assets/cinematch-website.png)
 
 ---
 
 ## 📋 Overview
 
-CineMatch AI is a full-stack movie discovery and recommendation web application that leverages machine learning to provide intelligent movie suggestions. Built with modern web technologies, it combines real-time data from the TMDB API with advanced content-based filtering algorithms.
+CineMatch AI is a full-stack movie discovery and recommendation web application that leverages machine learning to provide intelligent movie suggestions. Built with modern web technologies, it combines powerful backend APIs with an intuitive frontend interface.
 
 **Key Highlights:**
 - 🤖 **AI-Powered Recommendations** — TF-IDF content-based filtering engine
@@ -272,7 +272,6 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 
 **Tyhan Data**
 - GitHub: [@tyhan-data](https://github.com/tyhan-data)
-- Blog: [Read the full story](https://dev.to/vishal_kumar_691b5619d0dd/how-i-turned-an-old-movie-recommendation-project-into-a-cinematic-ai-platform-152j)
 
 ---
 
