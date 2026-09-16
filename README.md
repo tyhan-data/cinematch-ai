@@ -300,7 +300,7 @@ Have questions or suggestions? Feel free to:
 
 <div align="center">
 
-**Made with ❤️ by Tyhan Data**
+**Made with ❤️ by M.A.T**
 
 *Bringing cinema and AI together* 🍿
 
