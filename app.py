@@ -37,7 +37,7 @@ configure_page()
 # ═════════════════════════════════════════════════════════════════════════
 # STEP 2 — CONFIG / CONSTANTS
 # ═════════════════════════════════════════════════════════════════════════
-TMDB_API_KEY = "https://cinematch-ai-02r3.onrender.com"
+TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 TMDB_BASE    = "https://api.themoviedb.org/3"
 TMDB_IMG     = "https://image.tmdb.org/t/p/w500"
 TMDB_IMG_ORI = "https://image.tmdb.org/t/p/original"
