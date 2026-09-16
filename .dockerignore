@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cd]
+
+.env/
+.env
+*env/
+
+.ipnb_checkpoint/
+
+.vscode/
+
+.gitignore

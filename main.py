@@ -1,6 +1,11 @@
 """
 Movie Recommendation API — FastAPI backend
 Uses TF-IDF content-based filtering + TMDB for enriched metadata
+
+This backend is optional for the Streamlit app above — the frontend
+currently talks to TMDB directly. Wire it in (via API_BASE in app.py)
+once you're ready to serve recommendations from your own trained model
+instead of TMDB's generic "similar movies" endpoint.
 """
 
 import os
@@ -14,18 +19,23 @@ from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Optional
 import uvicorn
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
-
-# ── Config ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 1 — CONFIG
+# ═════════════════════════════════════════════════════════════════════════
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 TMDB_BASE    = "https://api.themoviedb.org/3"
 TMDB_IMG     = "https://image.tmdb.org/t/p/w500"
 PICKLE_DIR   = os.path.join(os.path.dirname(__file__), "model")
 
-# ── FastAPI app ─────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 2 — CREATE THE APP + CORS
+# CORS is wide open (allow_origins=["*"]) so the Streamlit frontend can
+# call this API from a different port during local dev. Lock this down
+# to your actual frontend domain before deploying publicly.
+# ═════════════════════════════════════════════════════════════════════════
 app = FastAPI(
     title="🎬 CineMatch — Movie Recommendation API",
     description="Content-based movie recommendations powered by TF-IDF + TMDB",
@@ -39,7 +49,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Load ML artefacts ───────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 3 — LOAD THE TRAINED TF-IDF MODEL (if present)
+# Expects four pickle files in ./model/: dataset.pkl, indices.pkl,
+# tfidf.pkl, tfidf_matrix.pkl. If they're missing, the API still runs —
+# /recommend just falls back to TMDB's "similar movies" endpoint instead
+# of your own trained model. See get_content_recommendations() below.
+# ═════════════════════════════════════════════════════════════════════════
 def load_model():
     try:
         with open(os.path.join(PICKLE_DIR, "dataset.pkl"), "rb") as f:
@@ -52,14 +68,17 @@ def load_model():
             tfidf_matrix = pickle.load(f)
         return dataset, indices, tfidf, tfidf_matrix
     except FileNotFoundError:
-        # Fallback: build demo model from TMDB popular movies
         return None, None, None, None
+
 
 dataset, indices, tfidf, tfidf_matrix = load_model()
 
-# ── TMDB helpers ────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 4 — TMDB HELPERS
+# Thin wrappers around the TMDB REST API used by the routes below.
+# ═════════════════════════════════════════════════════════════════════════
 def tmdb_search(title: str) -> Optional[dict]:
-    """Search TMDB for a movie by title."""
+    """Search TMDB for a movie by title, return the first match (or None)."""
     r = requests.get(
         f"{TMDB_BASE}/search/movie",
         params={"api_key": TMDB_API_KEY, "query": title, "language": "en-US"},
@@ -72,7 +91,8 @@ def tmdb_search(title: str) -> Optional[dict]:
 
 
 def tmdb_details(movie_id: int) -> dict:
-    """Get full TMDB movie details including credits and videos."""
+    """Get full TMDB movie details including credits (cast/director) and
+    trailer, flattened into one convenient dict."""
     details = requests.get(
         f"{TMDB_BASE}/movie/{movie_id}",
         params={"api_key": TMDB_API_KEY, "language": "en-US"},
@@ -91,23 +111,20 @@ def tmdb_details(movie_id: int) -> dict:
         timeout=8,
     ).json()
 
-    # Top cast (max 8)
     cast = [
         {
             "name": m["name"],
             "character": m["character"],
             "profile": f"{TMDB_IMG}{m['profile_path']}" if m.get("profile_path") else None,
         }
-        for m in credits.get("cast", [])[:8]
+        for m in credits.get("cast", [])[:30]
     ]
 
-    # Director
     director = next(
         (c["name"] for c in credits.get("crew", []) if c["job"] == "Director"),
         "N/A",
     )
 
-    # YouTube trailer
     trailer = next(
         (
             f"https://www.youtube.com/watch?v={v['key']}"
@@ -148,7 +165,7 @@ def tmdb_details(movie_id: int) -> dict:
 
 
 def tmdb_popular(page: int = 1) -> List[dict]:
-    """Fetch popular movies from TMDB."""
+    """Fetch a page of currently popular movies from TMDB."""
     r = requests.get(
         f"{TMDB_BASE}/movie/popular",
         params={"api_key": TMDB_API_KEY, "language": "en-US", "page": page},
@@ -156,9 +173,8 @@ def tmdb_popular(page: int = 1) -> List[dict]:
     )
     if r.status_code != 200:
         return []
-    movies = []
-    for m in r.json().get("results", [])[:20]:
-        movies.append({
+    return [
+        {
             "id": m["id"],
             "title": m["title"],
             "overview": m.get("overview", ""),
@@ -166,16 +182,21 @@ def tmdb_popular(page: int = 1) -> List[dict]:
             "rating": round(m.get("vote_average", 0), 1),
             "release_date": m.get("release_date", ""),
             "genre_ids": m.get("genre_ids", []),
-        })
-    return movies
+        }
+        for m in r.json().get("results", [])[:30]
+    ]
 
 
-def get_content_recommendations(title: str, n: int = 10) -> List[str]:
-    """Return top-N similar movie titles using the TF-IDF model."""
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 5 — CONTENT-BASED RECOMMENDATION LOGIC (your own TF-IDF model)
+# ═════════════════════════════════════════════════════════════════════════
+def get_content_recommendations(title: str, n: int = 30) -> List[str]:
+    """Return the top-N most similar movie titles using cosine similarity
+    over the TF-IDF matrix. Returns [] if the model isn't loaded or the
+    title isn't found in the trained dataset."""
     if dataset is None or indices is None or tfidf_matrix is None:
         return []
 
-    # Normalise title lookup
     title_lower = title.lower().strip()
     title_map = {t.lower(): t for t in indices.index} if hasattr(indices, "index") else {}
 
@@ -188,19 +209,20 @@ def get_content_recommendations(title: str, n: int = 10) -> List[str]:
         idx = idx.iloc[0]
 
     sim_scores = cosine_similarity(tfidf_matrix[idx], tfidf_matrix).flatten()
-    sim_scores[idx] = 0  # exclude itself
+    sim_scores[idx] = 0  # exclude the movie itself from its own recommendations
     top_indices = np.argsort(sim_scores)[::-1][:n]
 
-    # Map back to titles
     if isinstance(dataset, pd.DataFrame) and "title" in dataset.columns:
         return dataset.iloc[top_indices]["title"].tolist()
     return []
 
 
-# ── Routes ──────────────────────────────────────────────────────────────────
-
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 6 — ROUTES
+# ═════════════════════════════════════════════════════════════════════════
 @app.get("/", tags=["Health"])
 def root():
+    """Simple health check / landing route."""
     return {"message": "🎬 CineMatch API is running!", "docs": "/docs"}
 
 
@@ -215,7 +237,7 @@ def get_movie(movie_id: int):
 
 @app.get("/search", tags=["Movies"])
 def search_movie(q: str = Query(..., description="Movie title to search")):
-    """Search for a movie by title."""
+    """Search for a movie by title and return its full details."""
     result = tmdb_search(q)
     if not result:
         raise HTTPException(status_code=404, detail="Movie not found")
@@ -223,7 +245,7 @@ def search_movie(q: str = Query(..., description="Movie title to search")):
 
 
 @app.get("/popular", tags=["Movies"])
-def popular_movies(page: int = Query(1, ge=1, le=5)):
+def popular_movies(page: int = Query(1, ge=1, le=30)):
     """Get currently popular movies from TMDB."""
     return tmdb_popular(page)
 
@@ -231,15 +253,17 @@ def popular_movies(page: int = Query(1, ge=1, le=5)):
 @app.get("/recommend", tags=["Recommendations"])
 def recommend(
     title: str = Query(..., description="Movie title for recommendations"),
-    n: int = Query(10, ge=1, le=20, description="Number of recommendations"),
+    n: int = Query(30, ge=1, le=30, description="Number of recommendations"),
 ):
     """
-    Get content-based movie recommendations.
-    Falls back to TMDB 'similar' endpoint if the local model lacks the title.
-    """
-    # 1. Try local TF-IDF model
-    rec_titles = get_content_recommendations(title, n)
+    Get content-based movie recommendations for `title`.
 
+    Tries your locally trained TF-IDF model first; if that model isn't
+    loaded or doesn't know the title, falls back to TMDB's own
+    "similar movies" endpoint so the route still returns useful results.
+    """
+    # 1. Try the local TF-IDF model.
+    rec_titles = get_content_recommendations(title, n)
     if rec_titles:
         enriched = []
         for t in rec_titles:
@@ -255,7 +279,7 @@ def recommend(
                 })
         return {"source": "content-based", "recommendations": enriched}
 
-    # 2. Fallback: TMDB similar endpoint
+    # 2. Fallback: TMDB's "similar" endpoint.
     base = tmdb_search(title)
     if not base:
         raise HTTPException(status_code=404, detail=f"Movie '{title}' not found")
@@ -282,28 +306,28 @@ def recommend(
 
 @app.get("/trending", tags=["Movies"])
 def trending(time_window: str = Query("week", enum=["day", "week"])):
-    """Get trending movies."""
+    """Get trending movies (day or week window)."""
     r = requests.get(
         f"{TMDB_BASE}/trending/movie/{time_window}",
         params={"api_key": TMDB_API_KEY},
         timeout=8,
     )
-    movies = []
-    for m in r.json().get("results", [])[:20]:
-        movies.append({
+    return [
+        {
             "id": m["id"],
             "title": m["title"],
             "overview": m.get("overview", ""),
             "poster": f"{TMDB_IMG}{m['poster_path']}" if m.get("poster_path") else None,
             "rating": round(m.get("vote_average", 0), 1),
             "release_date": m.get("release_date", ""),
-        })
-    return movies
+        }
+        for m in r.json().get("results", [])[:30]
+    ]
 
 
 @app.get("/genre/{genre_id}", tags=["Movies"])
 def movies_by_genre(genre_id: int, page: int = Query(1, ge=1, le=5)):
-    """Get movies by genre ID."""
+    """Get movies for a given TMDB genre ID."""
     r = requests.get(
         f"{TMDB_BASE}/discover/movie",
         params={
@@ -315,17 +339,17 @@ def movies_by_genre(genre_id: int, page: int = Query(1, ge=1, le=5)):
         },
         timeout=8,
     )
-    movies = []
-    for m in r.json().get("results", [])[:20]:
-        movies.append({
+    return [
+        {
             "id": m["id"],
             "title": m["title"],
             "overview": m.get("overview", ""),
             "poster": f"{TMDB_IMG}{m['poster_path']}" if m.get("poster_path") else None,
             "rating": round(m.get("vote_average", 0), 1),
             "release_date": m.get("release_date", ""),
-        })
-    return movies
+        }
+        for m in r.json().get("results", [])[:30]
+    ]
 
 
 @app.get("/genres", tags=["Movies"])
@@ -347,18 +371,21 @@ def top_rated(page: int = Query(1, ge=1, le=5)):
         params={"api_key": TMDB_API_KEY, "language": "en-US", "page": page},
         timeout=8,
     )
-    movies = []
-    for m in r.json().get("results", [])[:20]:
-        movies.append({
+    return [
+        {
             "id": m["id"],
             "title": m["title"],
             "overview": m.get("overview", ""),
             "poster": f"{TMDB_IMG}{m['poster_path']}" if m.get("poster_path") else None,
             "rating": round(m.get("vote_average", 0), 1),
             "release_date": m.get("release_date", ""),
-        })
-    return movies
+        }
+        for m in r.json().get("results", [])[:30]
+    ]
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# STEP 7 — ENTRY POINT
+# ═════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
