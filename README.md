@@ -18,6 +18,13 @@
 
 CineMatch AI is a full-stack movie discovery and recommendation web application that leverages machine learning to provide intelligent movie suggestions. Built with modern web technologies, it combines powerful backend APIs with an intuitive frontend interface.
 
+## 🐳 Dockerization Note
+
+During development, I explored Dockerizing the CineMatch AI project to make the application easier to package and deploy consistently. However, Dockerization was not included in the final version due to deployment and environment compatibility considerations.
+
+The final version focuses on the updated `app.py` and `main.py` implementation and is deployed directly using Streamlit Cloud.
+---
+
 **Key Highlights:**
 - 🤖 **AI-Powered Recommendations** — TF-IDF content-based filtering engine
 - 🎯 **Intelligent Search** — Find movies by title with autocomplete
